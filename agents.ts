@@ -15,6 +15,8 @@ export interface AgentConfig {
 	systemPrompt: string;
 	source: "user" | "project";
 	filePath: string;
+	/** Relative path from agents directory, e.g. "Research/deep-research" */
+	relativePath?: string;
 }
 
 function isDirectory(p: string): boolean {
@@ -36,9 +38,11 @@ function findNearestProjectAgentsDir(cwd: string): string | null {
 	}
 }
 
-function loadAgentsFromDir(dir: string, source: "user" | "project"): AgentConfig[] {
+function loadAgentsFromDir(dir: string, source: "user" | "project", recursive: boolean = true, baseDir?: string): AgentConfig[] {
 	const agents: AgentConfig[] = [];
 	if (!fs.existsSync(dir)) return agents;
+
+	const effectiveBaseDir = baseDir || dir;
 
 	let entries: fs.Dirent[];
 	try {
@@ -48,10 +52,17 @@ function loadAgentsFromDir(dir: string, source: "user" | "project"): AgentConfig
 	}
 
 	for (const entry of entries) {
+		const filePath = path.join(dir, entry.name);
+
+		// Recursively process subdirectories
+		if (entry.isDirectory() && recursive) {
+			const subAgents = loadAgentsFromDir(filePath, source, recursive, effectiveBaseDir);
+			agents.push(...subAgents);
+			continue;
+		}
+
 		if (!entry.name.endsWith(".md")) continue;
 		if (!entry.isFile() && !entry.isSymbolicLink()) continue;
-
-		const filePath = path.join(dir, entry.name);
 		let content: string;
 		try {
 			content = fs.readFileSync(filePath, "utf-8");
@@ -71,6 +82,16 @@ function loadAgentsFromDir(dir: string, source: "user" | "project"): AgentConfig
 		}
 
 		if (!frontmatter.name || !frontmatter.description) continue;
+
+		// Calculate relative path from base directory
+		let relativePath: string | undefined;
+		if (effectiveBaseDir && filePath.startsWith(effectiveBaseDir)) {
+			const rel = filePath.substring(effectiveBaseDir.length);
+			const withoutFile = rel.substring(0, rel.lastIndexOf("/"));
+			if (withoutFile) {
+				relativePath = withoutFile.replace(/^[/\\]/, "").replace(/\\/g, "/");
+			}
+		}
 
 		// Handle tools as comma-separated string or YAML array
 			let tools: string[] | undefined;
@@ -93,6 +114,7 @@ function loadAgentsFromDir(dir: string, source: "user" | "project"): AgentConfig
 			systemPrompt: body.trim(),
 			source,
 			filePath,
+			relativePath,
 		});
 	}
 

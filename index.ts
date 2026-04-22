@@ -65,9 +65,13 @@ export default function (pi: ExtensionAPI) {
 			filtered.map((a) => {
 				const isActive = a.name === activeAgentName;
 				const activeBadge = isActive ? " ✓" : "";
+				// Show folder path in label if agent is in subfolder
+				const displayName = a.relativePath 
+					? `${a.relativePath}/${a.name}` 
+					: a.name;
 				return {
 					value: a.name,
-					label: a.name + activeBadge,
+					label: displayName + activeBadge,
 					description: `${a.source === "project" ? "📁" : "🏠"} ${a.description}${isActive ? " ◀ active" : ""}`,
 				};
 			});
@@ -204,7 +208,12 @@ export default function (pi: ExtensionAPI) {
 
 		activeAgentName = agentName;
 		activeAgentConfig = agent;
-		ctx.ui.setStatus("agent-switcher", `AGENT: ${agentName}`);
+
+		// Display agent with folder path in status bar
+		const displayName = agent.relativePath 
+			? `${agent.relativePath}/${agentName}` 
+			: agentName;
+		ctx.ui.setStatus("agent-switcher", `AGENT: ${displayName}`);
 
 		if (agent.tools && agent.tools.length > 0) {
 			pi.setActiveTools(agent.tools);
@@ -282,7 +291,11 @@ export default function (pi: ExtensionAPI) {
 						if (agent.tools && agent.tools.length > 0) {
 							pi.setActiveTools(agent.tools);
 						}
-						ctx.ui.setStatus("agent-switcher", `AGENT: ${name}`);
+						// Restore with folder path in status bar
+						const displayName = agent.relativePath 
+							? `${agent.relativePath}/${name}` 
+							: name;
+						ctx.ui.setStatus("agent-switcher", `AGENT: ${displayName}`);
 					}
 				}
 				break;
