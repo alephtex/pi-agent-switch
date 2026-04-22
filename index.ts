@@ -204,6 +204,7 @@ export default function (pi: ExtensionAPI) {
 
 		activeAgentName = agentName;
 		activeAgentConfig = agent;
+		ctx.ui.setStatus("agent-switcher", `AGENT: ${agentName}`);
 
 		if (agent.tools && agent.tools.length > 0) {
 			pi.setActiveTools(agent.tools);
@@ -281,6 +282,7 @@ export default function (pi: ExtensionAPI) {
 						if (agent.tools && agent.tools.length > 0) {
 							pi.setActiveTools(agent.tools);
 						}
+						ctx.ui.setStatus("agent-switcher", `AGENT: ${name}`);
 					}
 				}
 				break;
