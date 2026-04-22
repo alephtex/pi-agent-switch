@@ -212,8 +212,8 @@ export default function (pi: ExtensionAPI) {
     },
   });
   
-  // Register shortcut Ctrl+Shift+A for agent switching
-  pi.registerShortcut("ctrl+shift+a", {
+  // Register shortcut Ctrl+Alt+A for agent switching (Ctrl+Shift+A conflicts with pi-subagents)
+  pi.registerShortcut("ctrl+alt+a", {
     handler: async (ctx) => {
       currentCtx = ctx;
       
