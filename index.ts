@@ -91,18 +91,6 @@ export default function (pi: ExtensionAPI) {
 			// Search input
 			const searchInput = new Input();
 			searchInput.placeholder = "Search agents...";
-			const originalHandleInput = searchInput.handleInput.bind(searchInput);
-			searchInput.handleInput = (data: string) => {
-				const result = originalHandleInput(data);
-				// Trigger filter on any character change (not on submit/escape)
-				if (data !== "enter" && data !== "escape") {
-					searchQuery = searchInput.value;
-					filtered = filterAgents(allAgents, searchQuery);
-					selectedIndex = Math.min(selectedIndex, Math.max(0, filtered.length - 1));
-					tui.requestRender();
-				}
-				return result;
-			};
 			container.addChild(searchInput);
 
 			// Divider
@@ -116,16 +104,6 @@ export default function (pi: ExtensionAPI) {
 				scrollInfo: (t) => theme.fg("dim", t),
 				noMatch: (t) => theme.fg("warning", t),
 			});
-
-			// Select agent via onSelect callback (Enter key triggers this via SelectList)
-			selectList.onSelect = (item) => {
-				const name = item.value as string;
-				if (name) {
-					done(undefined);
-					// Activate after picker closes
-					activate(pi, ctx, name);
-				}
-			};
 
 			container.addChild(selectList);
 
@@ -142,35 +120,51 @@ export default function (pi: ExtensionAPI) {
 			container.addChild(new Text(theme.fg("dim", "  ↑↓ navigate · type to filter · enter select · esc cancel  "), 1, 0));
 			container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
 
-			// Focus search input on start
-			searchInput.focused = true;
-
 			return {
 				render: (w: number) => container.render(w),
 				invalidate: () => container.invalidate(),
 				handleInput: (data: string) => {
-					// Tab or printable char → pass to search input when focused
-					if (
-						data === "tab" ||
-						(data.length === 1 && data.charCodeAt(0) >= 32)
-					) {
-						if (searchInput.handleInput(data)) {
-							tui.requestRender();
-							return;
-						}
+					// Printable characters → type in search
+					if (data.length === 1 && data.charCodeAt(0) >= 32) {
+						searchInput.handleInput(data);
+						searchQuery = searchInput.value;
+						filtered = filterAgents(allAgents, searchQuery);
+						selectedIndex = 0;
+						selectList.selectedIndex = 0;
+						tui.requestRender();
+						return;
 					}
-					// Arrow up → move select list up
-					if (data === "up" || data === "shift+tab") {
+					// Backspace → delete character
+					if (data === "backspace") {
+						searchInput.handleInput(data);
+						searchQuery = searchInput.value;
+						filtered = filterAgents(allAgents, searchQuery);
+						selectedIndex = Math.min(selectedIndex, Math.max(0, filtered.length - 1));
+						selectList.selectedIndex = selectedIndex;
+						tui.requestRender();
+						return;
+					}
+					// Arrow up → move list up
+					if (data === "up") {
 						selectedIndex = Math.max(0, selectedIndex - 1);
 						selectList.selectedIndex = selectedIndex;
 						tui.requestRender();
 						return;
 					}
-					// Arrow down → move select list down
-					if (data === "down" || data === "tab") {
+					// Arrow down → move list down
+					if (data === "down") {
 						selectedIndex = Math.min(filtered.length - 1, selectedIndex + 1);
 						selectList.selectedIndex = selectedIndex;
 						tui.requestRender();
+						return;
+					}
+					// Enter → select agent
+					if (data === "enter") {
+						const item = selectList.selectedItem();
+						if (item) {
+							done(undefined);
+							activate(pi, ctx, item.value as string);
+						}
 						return;
 					}
 					// Escape → cancel
@@ -178,16 +172,27 @@ export default function (pi: ExtensionAPI) {
 						done(undefined);
 						return;
 					}
-					// Backspace → search input
-					if (data === "backspace") {
-						if (searchInput.handleInput(data)) {
-							tui.requestRender();
-						}
+					// Tab → move list down
+					if (data === "tab" || data === "shift+tab") {
+						const dir = data === "tab" ? 1 : -1;
+						selectedIndex = Math.max(0, Math.min(filtered.length - 1, selectedIndex + dir));
+						selectList.selectedIndex = selectedIndex;
+						tui.requestRender();
 						return;
 					}
-					// Pass remaining to select list
-					selectList.handleInput(data);
-					tui.requestRender();
+					// Home/End → jump to first/last
+					if (data === "home") {
+						selectedIndex = 0;
+						selectList.selectedIndex = 0;
+						tui.requestRender();
+						return;
+					}
+					if (data === "end") {
+						selectedIndex = Math.max(0, filtered.length - 1);
+						selectList.selectedIndex = selectedIndex;
+						tui.requestRender();
+						return;
+					}
 				},
 			};
 		});
