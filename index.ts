@@ -10,18 +10,51 @@
  * - name, description, tools, model (optional), systemPrompt
  */
 
+import * as path from "node:path";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Container, type SelectItem, SelectList, Text, Input, matchesKey, Key } from "@mariozechner/pi-tui";
-import { DynamicBorder } from "@mariozechner/pi-coding-agent";
+import { DynamicBorder, getAgentDir } from "@mariozechner/pi-coding-agent";
 import { discoverAgents, findAgent } from "./agents";
 
 const MAX_AGENTS_SHOWN = 15;
+const DEFAULT_CONFIG_PATH = "agent-switcher-default.json";
 
 // Module-level state — survives across commands in the same session
+let defaultAgentName: string | null = null;
 let activeAgentName: string | null = null;
 let activeAgentConfig: ReturnType<typeof findAgent> | null = null;
 
 export default function (pi: ExtensionAPI) {
+	// ── Helper: save/load default agent config ───────────────────────────
+
+	function getConfigPath(): string {
+		return path.join(getAgentDir(), DEFAULT_CONFIG_PATH);
+	}
+
+	function saveDefaultAgent(name: string): void {
+		try {
+			const fs = require("node:fs");
+			const configPath = getConfigPath();
+			fs.writeFileSync(configPath, JSON.stringify({ defaultAgent: name }, null, 2));
+		} catch (e) {
+			// Ignore errors - non-critical feature
+		}
+	}
+
+	function loadDefaultAgent(): string | null {
+		try {
+			const fs = require("node:fs");
+			const configPath = getConfigPath();
+			if (fs.existsSync(configPath)) {
+				const data = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+				return data.defaultAgent || null;
+			}
+		} catch (e) {
+			// Ignore errors
+		}
+		return null;
+	}
+
 	// ── Helper: build agent picker UI with search ───────────────────────────
 
 	async function showPicker(
@@ -186,18 +219,42 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 
-			const agent = findAgent(ctx.cwd, args);
+			// Handle /agent [name] default - set as default
+			const parts = args.split(/\s+/);
+			const agentName = parts[0];
+			const isDefault = parts[1]?.toLowerCase() === "default";
+
+			// Find the agent
+			const agent = findAgent(ctx.cwd, agentName);
 			if (!agent) {
+				// Check if "default" was the agent name (no agent specified)
+				if (agentName.toLowerCase() === "default") {
+					// Show current default or clear it
+					if (defaultAgentName) {
+						ctx.ui.notify(`Current default agent: ${defaultAgentName}`, "info");
+					} else {
+						ctx.ui.notify("No default agent set.", "info");
+					}
+					return;
+				}
+
 				const available = discoverAgents(ctx.cwd);
 				const suggestions = available.slice(0, 5).map((a) => a.name).join(", ");
 				ctx.ui.notify(
-					`Profile "${args}" not found.${suggestions ? ` Try: ${suggestions}` : ""}`,
+					`Profile "${agentName}" not found.${suggestions ? ` Try: ${suggestions}` : ""}`,
 					"error",
 				);
 				return;
 			}
 
-			await activate(pi, ctx, args);
+			// Set as default if requested
+			if (isDefault) {
+				defaultAgentName = agentName;
+				saveDefaultAgent(agentName);
+				ctx.ui.notify(`Set default agent to: ${agentName}`, "info");
+			}
+
+			await activate(pi, ctx, agentName);
 		},
 	});
 
@@ -233,6 +290,9 @@ export default function (pi: ExtensionAPI) {
 	// ── Restore active agent from session ──────────────────────────────────
 
 	pi.on("session_start", async (_event, ctx) => {
+		let activated = false;
+
+		// First, check session for saved active agent
 		for (const entry of ctx.sessionManager.getEntries()) {
 			if (entry.type === "custom" && (entry as any).customType === "agent-switcher:active") {
 				const name = (entry as any).data?.name as string | undefined;
@@ -244,14 +304,33 @@ export default function (pi: ExtensionAPI) {
 						if (agent.tools && agent.tools.length > 0) {
 							pi.setActiveTools(agent.tools);
 						}
-						// Restore with folder path in status bar
 						const displayName = agent.relativePath 
 							? `${agent.relativePath}/${name}` 
 							: name;
 						ctx.ui.setStatus("agent-switcher", `AGENT: ${displayName}`);
+						activated = true;
 					}
 				}
 				break;
+			}
+
+		// If no saved agent, check for default agent
+		if (!activated) {
+			const defaultName = loadDefaultAgent();
+			if (defaultName) {
+				const agent = findAgent(ctx.cwd, defaultName);
+				if (agent) {
+					activeAgentName = defaultName;
+					activeAgentConfig = agent;
+					defaultAgentName = defaultName;
+					if (agent.tools && agent.tools.length > 0) {
+						pi.setActiveTools(agent.tools);
+					}
+					const displayName = agent.relativePath 
+						? `${agent.relativePath}/${defaultName}` 
+						: defaultName;
+					ctx.ui.setStatus("agent-switcher", `AGENT: ${displayName}`);
+				}
 			}
 		}
 	});
